@@ -1,10 +1,15 @@
-A simple tool based on [rnix](https://github.com/nix-community/rnix-parser) that takes a single nix file as an argument and prints all paths it references separated by newlines
 
-```
-$ nix-build
-/nix/store/1clbfcm17x7awgfp7i1qqqri5mj60k49-nix-refs
-$ result/bin/nix-refs ~/src/nixpkgs/default.nix
-./lib/minver.nix
-./nixos/doc/manual/release-notes
-./pkgs/top-level/impure.nix
-```
+## Implementation
+
+- Index the tree for references. If `.git` exists, use `ls-tree` equivalent
+- Check the validity of the `pkgs/unit` directory
+  - Should only contain correctly-named subdirectories
+  - Shouldn't reference files outside, neither be referenced from outside
+  - Shouldn't have a conflicting definition in all-packages.nix or aliases.nix
+- Loop through all definitions in all-packages.nix
+  For all definitions that could be migrated:
+  - If `--mode=migrate`, migrate the code, output a message
+  - If `--mode=warn`, output a warning message only
+    - If in GitHub Actions, Create a code annotation
+  - If `--mode=error`, output an error message, fail at the end
+    - If in GitHub Actions, Create a code annotation
