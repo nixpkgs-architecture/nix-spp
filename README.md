@@ -10,6 +10,8 @@
   For all definitions that could be migrated:
   - If `--mode=migrate`, migrate the code, output a message
   - If `--mode=warn`, output a warning message only
-    - If in GitHub Actions, Create a code annotation
+    - If in GitHub Actions, create a code annotation
   - If `--mode=error`, output an error message, fail at the end
-    - If in GitHub Actions, Create a code annotation
+    - If in GitHub Actions, create a code annotation
+
+Perhaps create code annotations only when they're in a file that's changed by the PR
