@@ -1,11 +1,49 @@
-use std::{env, fs};
-
+use clap::Parser;
+use std::fs;
 use rowan::ast::AstNode;
 use std::path::Path;
 use std::path::PathBuf;
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::path::Component;
+
+#[derive(Parser, Debug)]
+#[command(about, long_about = None)]
+struct Args {
+   /// Mode to run in
+   #[arg(short, long, value_enum)]
+   mode: Mode,
+
+   /// Enable debugging
+   #[arg(short, long, action = clap::ArgAction::Count)]
+   debug: u8,
+
+   /// The path to nixpkgs
+   path: String,
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum Mode {
+    Migrate,
+    Warn,
+    Error,
+}
+
+fn main() {
+
+    let cli = Args::parse();
+
+    let root_path = Path::new(&cli.path);
+    std::env::set_current_dir(root_path).unwrap();
+    let cur_dir = Path::new(".");
+    let mut tree = FileTree::from(cur_dir);
+    find_references(&mut tree, cur_dir);
+
+    // println!("{:#?}", tree);
+
+    tree.safe_to_move(cur_dir.to_path_buf());
+    // Print all files that are safe to move
+}
 
 fn process_file(tree: &mut FileTree, file: &Path) {
     // eprintln!("Processing file {:?}", file);
@@ -171,12 +209,12 @@ impl FileTree {
     }
 
     fn prevent_move(&mut self, path: PathBuf, reference: Reference) {
-        eprintln!("Preventing the move of path {:?} due to reference {:?}", path, reference);
+        // eprintln!("Preventing the move of path {:?} due to reference {:?}", path, reference);
         self._prevent_move(&mut path.components(), reference);
     }
 
     fn prevent_rename(&mut self, path: PathBuf, reference: Reference) {
-        eprintln!("Preventing the rename of path {:?} due to reference {:?}", path, reference);
+        // eprintln!("Preventing the rename of path {:?} due to reference {:?}", path, reference);
         self._prevent_rename(&mut path.components(), reference);
     }
 
@@ -205,23 +243,3 @@ fn find_references(tree: &mut FileTree, path: &Path) {
     }
 }
 
-fn main() {
-    let mut iter = env::args().skip(1);
-    let root = match iter.next() {
-        None => {
-            eprintln!("Usage: dump-ast <file>");
-            return;
-        },
-        Some(file) => file
-    };
-    let root_path = Path::new(&root);
-    std::env::set_current_dir(root_path).unwrap();
-    let cur_dir = Path::new(".");
-    let mut tree = FileTree::from(cur_dir);
-    find_references(&mut tree, cur_dir);
-
-    // println!("{:#?}", tree);
-
-    tree.safe_to_move(cur_dir.to_path_buf());
-    // Print all files that are safe to move
-}
