@@ -1,5 +1,5 @@
 [package]
-name = "nix-refs"
+name = "nix-spp"
 version = "0.1.0"
 edition = "2021"
 
