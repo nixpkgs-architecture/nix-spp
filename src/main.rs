@@ -1,4 +1,3 @@
-use clap::Parser;
 use std::fs;
 use rowan::ast::AstNode;
 use std::path::Path;
@@ -7,34 +6,31 @@ use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::path::Component;
 
-#[derive(Parser, Debug)]
-#[command(about, long_about = None)]
-struct Args {
-   /// Mode to run in
-   #[arg(short, long, value_enum)]
-   mode: Mode,
-
-   /// Enable debugging
-   #[arg(short, long, action = clap::ArgAction::Count)]
-   debug: u8,
-
-   /// The path to nixpkgs
-   path: String,
-}
-
-#[derive(Debug, Clone, clap::ValueEnum)]
-enum Mode {
-    Migrate,
-    Warn,
-    Error,
-}
+mod args;
+mod index;
+mod unit;
+use index::ReferenceIndex;
+use args::Args;
+use clap::Parser;
+use unit::check_unit_dir;
 
 fn main() {
 
     let cli = Args::parse();
 
-    let root_path = Path::new(&cli.path);
-    std::env::set_current_dir(root_path).unwrap();
+    let reference_index = ReferenceIndex::new(&cli.path);
+
+    let unit_dir = cli.path.join("pkgs/unit");
+    if ! unit_dir.exists() {
+        eprintln!("Unit directory doesn't exist, skipping check");
+    } else {
+        check_unit_dir(unit_dir, reference_index);
+        eprintln!("Unit directory is valid");
+    }
+
+    return;
+
+    // std::env::set_current_dir(root_path).unwrap();
     let cur_dir = Path::new(".");
     let mut tree = FileTree::from(cur_dir);
     find_references(&mut tree, cur_dir);
