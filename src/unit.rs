@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::ffi::OsString;
 use std::collections::HashSet;
-use crate::index::ReferenceIndex;
+use crate::index::GlobalIndex;
 
 const MAX_SHARD_LENGTH : usize = 4;
 
@@ -11,7 +11,7 @@ const MAX_SHARD_LENGTH : usize = 4;
 //   file, and optionally a Nix expression to use as the args.nix
 // - Provides an iterator over all the unit directories
 
-pub fn check_unit_dir(unit_dir: PathBuf, reference_index: ReferenceIndex) -> HashSet<String> {
+pub fn check_unit_dir(unit_dir: PathBuf, _global_index: &GlobalIndex) -> HashSet<String> {
     let mut result = HashSet::new();
     for unit_result in unit_dir.read_dir().unwrap() {
         let shard_dir = unit_result.unwrap();
