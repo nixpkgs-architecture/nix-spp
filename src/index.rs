@@ -1,3 +1,4 @@
+use crate::line_index::LineIndex;
 use rowan::ast::AstNode;
 use rnix::{
     Root,
@@ -77,7 +78,7 @@ impl GlobalIndex {
                 },
             };
 
-            let line_index = LineIndex::new(contents);
+            let line_index = LineIndex::new(&contents);
 
             'nodes: for node in root.syntax().descendants() {
                 if node.kind() != NODE_PATH {
@@ -182,39 +183,3 @@ impl GlobalIndex {
         GlobalIndex { path_indices }
     }
 }
-
-
-// A simple utility for calculating the line for a string offset
-struct LineIndex {
-    newlines: Vec<usize>
-}
-
-impl LineIndex {
-    fn new(s: String) -> LineIndex {
-        let mut newlines = vec![];
-        let mut index = 0;
-        for split in s.split_inclusive("\n") {
-            index += split.len();
-            newlines.push(index);
-        }
-        LineIndex { newlines }
-    }
-
-    fn line(&self, index: usize) -> usize {
-        match self.newlines.binary_search(&index) {
-            Ok(x) => x + 1,
-            Err(x) => x + 1,
-        }
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
