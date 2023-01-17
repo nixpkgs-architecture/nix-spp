@@ -15,12 +15,13 @@ use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::path::PathBuf;
 use crate::line_index::LineIndex;
+use crate::index::{GlobalIndex, resolve_reference};
 
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub index: usize,
     pub line: usize,
-    pub path: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -32,7 +33,7 @@ pub struct AllPackages {
 }
 
 impl AllPackages {
-    pub fn new(path: &PathBuf) -> AllPackages {
+    pub fn new(path: &PathBuf, global_index: &GlobalIndex) -> AllPackages {
         let contents = read_to_string(path).unwrap();
         let line_index = LineIndex::new(&contents);
         let mut entries = HashMap::new();
@@ -80,9 +81,14 @@ impl AllPackages {
                         if let Some(_) = iterator.next() {
                             continue;
                         }
-                        match part {
+                        let x = match part {
                             InterpolPart::Literal(path) => path.syntax().text().to_string(),
                             _ => continue
+                        };
+                        if let Some((_rel_to_source, _movable_ancestor, rel_to_root)) = resolve_reference(&PathBuf::from("./pkgs/top-level/all-packages.nix"), line, &PathBuf::from(&x), &global_index.path_indices) {
+                            rel_to_root
+                        } else {
+                            continue
                         }
                     };
 

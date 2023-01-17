@@ -68,7 +68,7 @@ pub fn check_unit_dir(unit_dir: PathBuf, _global_index: &GlobalIndex) -> HashSet
     result
 }
 
-fn attr_shard_dir(attr: &String) -> OsString {
+pub fn attr_shard_dir(attr: &String) -> OsString {
     let prefix : String = attr.chars().take(MAX_SHARD_LENGTH).collect();
     prefix.into()
 }

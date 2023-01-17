@@ -23,9 +23,13 @@ pub struct Reference {
     // Another example: If the reference is `../bar`, then movable_ancestor is `..`. It's not `./.`
     // because if we moved the current directory around we could break this reference.
     pub movable_ancestor: PathBuf,
+
+    pub rel_to_root: PathBuf,
+
+    pub text: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PathIndex {
     pub references: Vec<Reference>,
     pub referenced_by: Vec<(PathBuf, usize)>,
@@ -40,12 +44,11 @@ impl PathIndex {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GlobalIndex {
     // For each Nix file, what paths it references
     pub path_indices: HashMap<PathBuf, PathIndex>,
 }
-
 
 
 impl GlobalIndex {
@@ -58,8 +61,7 @@ impl GlobalIndex {
             path_indices.insert(subpath, PathIndex::new());
         }
 
-        for result in Walk::new(".") {
-            let subpath = result.unwrap().into_path();
+        for subpath in path_indices.to_owned().into_keys() {
             if subpath.is_dir() {
                 continue
             }
@@ -96,60 +98,19 @@ impl GlobalIndex {
                     continue 'nodes
                 }
 
-                let mut node_path = PathBuf::from(&text);
+                let (rel_to_source, movable_ancestor, rel_to_root) =
+                    if let Some(resolved) = resolve_reference(&subpath, line, &PathBuf::from(&text), &path_indices) {
+                        resolved
+                    } else {
+                        continue 'nodes
+                    };
 
-                let mut movable_ancestor = subpath.parent().unwrap().to_path_buf();
-                let mut referenced_path = movable_ancestor.clone();
-                let mut ascending = true;
-
-                for component in node_path.components() {
-                    match component {
-                        Component::CurDir => {}
-                        Component::ParentDir => {
-                            if ! ascending {
-                                eprintln!("Warning: File {:?} on line {:?} contains a path with an interleaved `..` segment, ignoring it: {:?}", subpath, line, text);
-                                continue 'nodes;
-                            }
-                            movable_ancestor = match movable_ancestor.parent() {
-                                None => {
-                                    eprintln!("Parent doesn't exist");
-                                    continue 'nodes;
-                                },
-                                Some(parent) => {
-                                    if ! parent.starts_with(".") {
-                                        eprintln!("Warning: File {:?} on line {:?} refers to a path that escapes the project root, ignoring it: {:?}", subpath, line, text);
-                                        continue 'nodes;
-                                    }
-                                    parent.to_path_buf()
-                                },
-
-                            };
-                            referenced_path = movable_ancestor.clone();
-                        }
-                        Component::Normal(segment) => {
-                            ascending = false;
-                            referenced_path = referenced_path.join(segment);
-                            if ! path_indices.contains_key(&referenced_path) {
-                                if referenced_path.exists() {
-                                    eprintln!("Warning: File {:?} on line {:?} refers to an ignored path, ignoring it: {:?}", subpath, line, text);
-                                } else {
-                                    eprintln!("Warning: File {:?} on line {:?} refers to non-existent path, ignoring it {:?}", subpath, line, text);
-                                }
-                                continue 'nodes;
-                            }
-                        }
-                        Component::RootDir | Component::Prefix(_) => {
-                            eprintln!("Warning: File {:?} on line {:?} refers to absolute path, ignoring it: {:?}", subpath, line, text);
-                            continue 'nodes;
-                        }
-                    }
-                }
-
-                if referenced_path.join("default.nix").exists() {
-                    node_path = node_path.join("default.nix");
-                }
-
-                let reference = Reference { line, movable_ancestor };
+                let reference = Reference {
+                    line,
+                    movable_ancestor,
+                    rel_to_root,
+                    text,
+                };
                 let path_index = path_indices.get_mut(&subpath).unwrap();
                 let current_length = path_index.references.len();
                 let pointer = (subpath.clone(), current_length);
@@ -161,7 +122,7 @@ impl GlobalIndex {
                 path_index.referenced_by.push(pointer.clone());
 
                 let mut focused_dir = subpath.parent().unwrap().to_path_buf();
-                for component in node_path.components() {
+                for component in rel_to_source.components() {
                     match component {
                         Component::CurDir => {}
                         Component::ParentDir => {
@@ -183,3 +144,72 @@ impl GlobalIndex {
         GlobalIndex { path_indices }
     }
 }
+
+// Absolute project root path
+// Source path is where the reference is, relative to project root
+// reference is the reference string, any format
+pub fn resolve_reference(source: &PathBuf, line: usize, reference: &PathBuf, known_files: &HashMap<PathBuf, PathIndex>) -> Option<(PathBuf, PathBuf, PathBuf)> {
+
+    let mut rel_to_source = reference.clone();
+    let mut movable_ancestor = source.parent().unwrap().to_path_buf();
+    let mut rel_to_root = movable_ancestor.clone();
+    let mut ascending = true;
+    for component in reference.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if ! ascending {
+                    eprintln!("Warning: File {:?} on line {:?} contains a path with an interleaved `..` segment, ignoring it: {:?}", source, line, reference);
+                    return None
+                }
+                movable_ancestor = match movable_ancestor.parent() {
+                    None => {
+                        eprintln!("Parent doesn't exist");
+                        return None
+                    },
+                    Some(parent) => {
+                        if ! parent.starts_with(".") {
+                            eprintln!("Warning: File {:?} on line {:?} refers to a path that escapes the project root, ignoring it: {:?}", source, line, reference);
+                            return None
+                        }
+                        parent.to_path_buf()
+                    },
+
+                };
+                rel_to_root = movable_ancestor.clone();
+            }
+            Component::Normal(segment) => {
+                ascending = false;
+                rel_to_root = rel_to_root.join(segment);
+                if ! known_files.contains_key(&rel_to_root) {
+                    if rel_to_root.exists() {
+                        eprintln!("Warning: File {:?} on line {:?} refers to an ignored path, ignoring it: {:?}", source, line, reference);
+                    } else {
+                        eprintln!("Warning: File {:?} on line {:?} refers to non-existent path, ignoring it {:?}", source, line, reference);
+                    }
+                    return None
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                eprintln!("Warning: File {:?} on line {:?} refers to absolute path, ignoring it: {:?}", source, line, reference);
+                return None
+            }
+        }
+    }
+
+    if rel_to_root.is_dir() {
+        rel_to_root = rel_to_root.join("default.nix");
+        rel_to_source = rel_to_source.join("default.nix");
+        if ! known_files.contains_key(&rel_to_root) {
+            eprintln!("Warning: File {:?} on line {:?} refers to a directory that doesn't contain a default.nix file, ignoring it: {:?}", source, line, reference);
+            return None
+        }
+    }
+    Some((rel_to_source, movable_ancestor, rel_to_root))
+}
+
+
+
+
+
+
