@@ -67,6 +67,6 @@ pub fn check_unit_dir(unit_dir: PathBuf, _global_index: &GlobalIndex) -> HashSet
 }
 
 pub fn attr_shard_dir(attr: &String) -> OsString {
-    let str : String = attr.to_lowercase().chars().take(2).collect();
+    let str : String = attr.chars().take(2).collect();
     str.into()
 }
