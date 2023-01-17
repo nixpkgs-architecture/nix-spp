@@ -3,8 +3,6 @@ use std::ffi::OsString;
 use std::collections::HashSet;
 use crate::index::GlobalIndex;
 
-const MAX_SHARD_LENGTH : usize = 2;
-
 // - insert: Takes a path that should be moved into the unit directory,
 //   checks that the path doesn't contain any references to outside, and
 //   nothing references that path (transitively). Also takes a subpath to use as the pkg-fun.nix
@@ -69,14 +67,6 @@ pub fn check_unit_dir(unit_dir: PathBuf, _global_index: &GlobalIndex) -> HashSet
 }
 
 pub fn attr_shard_dir(attr: &String) -> OsString {
-    let mut padded = attr.to_owned();
-    // padded.push_str("----");
-    let mut result = String::new();
-    let first : String = padded.chars().take(2).collect();
-    // let second : String = padded.chars().skip(2).take(2).collect();
-    result.push_str(&first);
-    // result.push_str("/");
-    // result.push_str(&second);
-    result.into()
-    
+    let str : String = attr.chars().take(2).collect();
+    str.into()
 }

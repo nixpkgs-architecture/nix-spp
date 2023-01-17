@@ -48,7 +48,7 @@ fn main() {
             for reference in reference_index.path_indices.get(&next).unwrap().references.to_owned() {
                 // println!("Reference: {:#?}", reference);
                 if ! reference.movable_ancestor.starts_with(old_dir) {
-                    println!("Cannot move attribute {:?} pointing to file {:?}, because it transitively references file {:?} which in line {:?} contains a path reference {:?} which would break", key, value.path, next, reference.line, reference.text);    
+                    eprintln!("Cannot move attribute {:?} pointing to file {:?}, because it transitively references file {:?} which in line {:?} contains a path reference {:?} which would break", key, value.path, next, reference.line, reference.text);
                     continue 'attrs;
                 }
                 if seen.insert(reference.rel_to_root.clone()) {
@@ -57,8 +57,6 @@ fn main() {
             }
         }
 
-        // No references to outside
-        
         for file in seen.clone() {
             for (referenced_by, index) in reference_index.path_indices.get(&file).unwrap().referenced_by.to_owned() {
                 let reference = reference_index.path_indices.get(&referenced_by).unwrap().references[index].clone();
@@ -69,7 +67,7 @@ fn main() {
                     // println!("Attribute {:?} pointing to file {:?} is referenced by another file {:?} on line {:?}", key, value.path, referenced_by, reference.line);
                     continue
                 } else {
-                    println!("Cannot move attribute {:?} pointing to file {:?}, because one of its transitively referenced files {:?} is referenced by file {:?} on line {:?}", key, value.path, file, referenced_by, reference.line);
+                    eprintln!("Cannot move attribute {:?} pointing to file {:?}, because one of its transitively referenced files {:?} is referenced by file {:?} on line {:?}", key, value.path, file, referenced_by, reference.line);
                     continue 'attrs;
                 }
             }
@@ -79,15 +77,6 @@ fn main() {
         let unit_dir = cli.path.join("pkgs/unit").join(shard_dir).join(&key);
         std::fs::create_dir_all(&unit_dir).unwrap();
         // println!("Moving attribute {:?} pointing to file {:?} to unit directory {:?}", key, value.path, unit_dir);
-
-        // if ! seen.remove(&value.path) {
-        //     println!("{:#?}", seen);
-        // }
-        // let base = value.path.strip_prefix(old_dir).unwrap();
-        // let new = unit_dir.join(base).join("pkg-fun.nix");
-        // std::fs::create_dir_all(new.parent().unwrap()).unwrap();
-        // println!("Moving {:?} to {:?}", value.path, new);
-        // std::fs::rename(&value.path, new).unwrap();
 
         for old in seen {
             let base = old.strip_prefix(old_dir).unwrap();
