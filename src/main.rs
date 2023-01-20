@@ -1,3 +1,4 @@
+use ignore::Walk;
 use crate::unit::attr_shard_dir;
 use std::path::PathBuf;
 use std::collections::HashSet;
@@ -42,12 +43,12 @@ fn main() {
         let mut stack = vec![value.path.clone()];
         let mut seen : HashSet<PathBuf> = HashSet::new();
         seen.insert(value.path.clone());
-        let old_dir = value.path.parent().unwrap();
+        let old_dir = value.path.parent().unwrap().to_path_buf();
 
         while let Some(next) = stack.pop() {
             for reference in reference_index.path_indices.get(&next).unwrap().references.to_owned() {
                 // println!("Reference: {:#?}", reference);
-                if ! reference.movable_ancestor.starts_with(old_dir) {
+                if ! reference.movable_ancestor.starts_with(&old_dir) {
                     eprintln!("Cannot move attribute {:?} pointing to file {:?}, because it transitively references file {:?} which in line {:?} contains a path reference {:?} which would break", key, value.path, next, reference.line, reference.text);
                     continue 'attrs;
                 }
@@ -78,8 +79,27 @@ fn main() {
         std::fs::create_dir_all(&unit_dir).unwrap();
         // println!("Moving attribute {:?} pointing to file {:?} to unit directory {:?}", key, value.path, unit_dir);
 
-        for old in seen {
-            let base = old.strip_prefix(old_dir).unwrap();
+        std::env::set_current_dir(&cli.path).unwrap();
+        for result in Walk::new(&old_dir) {
+            let old = result.unwrap().into_path();
+            let old_dir_ref_bys = &reference_index.path_indices.get(&old_dir).unwrap().referenced_by;
+            if old.is_dir() {
+                continue
+            }
+            if seen.contains(&old) {
+                // println!("Moving {:?} to {:?} because it's being transitively referenced", old, new);
+            } else if
+                // There can only be one reference from all-packages.nix, a bit hacky
+                old_dir_ref_bys.iter().filter(|(path, _)| path == &PathBuf::from("./pkgs/top-level/all-packages.nix")).count() == 1 &&
+                // And all the other references must come from the file itself
+                old_dir_ref_bys.iter().all(|(path, _)| path == &PathBuf::from("./pkgs/top-level/all-packages.nix") || path == &value.path) &&
+                // And the file to be moved must not be referenced from anywhere else
+                reference_index.path_indices.get(&old).unwrap().referenced_by.is_empty() {
+                eprintln!("For attribute {:?}, only all-packages.nix and its file {:?} may reference the containing directory {:?}, which also contains the file {:?} which is not referenced from anywhere else. Also moving that to the unit directory", key, value.path, old_dir, old);
+            } else {
+                continue
+            }
+            let base = old.strip_prefix(&old_dir).unwrap();
             let mut new = unit_dir.join(base);
             if old == value.path {
                 new.pop();

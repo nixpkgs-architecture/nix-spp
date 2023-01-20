@@ -122,6 +122,8 @@ impl GlobalIndex {
                 path_index.referenced_by.push(pointer.clone());
 
                 let mut focused_dir = subpath.parent().unwrap().to_path_buf();
+                // The directory of the file is referenced by the file
+                path_indices.get_mut(&focused_dir).unwrap().referenced_by.push(pointer.clone());
                 for component in rel_to_source.components() {
                     match component {
                         Component::CurDir => {}
@@ -197,13 +199,10 @@ pub fn resolve_reference(source: &PathBuf, line: usize, reference: &PathBuf, kno
         }
     }
 
-    if rel_to_root.is_dir() {
+    // This should only be done for the top-level
+    if rel_to_root.is_dir() && known_files.contains_key(&rel_to_root.join("default.nix")) {
         rel_to_root = rel_to_root.join("default.nix");
         rel_to_source = rel_to_source.join("default.nix");
-        if ! known_files.contains_key(&rel_to_root) {
-            eprintln!("Warning: File {:?} on line {:?} refers to a directory that doesn't contain a default.nix file, ignoring it: {:?}", source, line, reference);
-            return None
-        }
     }
     Some((rel_to_source, movable_ancestor, rel_to_root))
 }
