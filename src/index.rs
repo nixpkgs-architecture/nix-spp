@@ -89,10 +89,12 @@ impl GlobalIndex {
                 let text = node.text().to_string();
                 let line = line_index.line(node.text_range().start().into());
 
+                // Filters out ./foo/${bar}/baz
                 if node.children().count() != 0 {
                     eprintln!("Note: File {:?} on line {:?} contains a path with a subexpressions, ignoring it: {}", subpath, line, text);
                     continue 'nodes
                 }
+                // Filters out search paths like <nixpkgs>
                 if str::starts_with(&text, "<") {
                     eprintln!("Warning: File {:?} on line {:?} refers to Nix search path, ignoring it: {:?}", subpath, line, text);
                     continue 'nodes

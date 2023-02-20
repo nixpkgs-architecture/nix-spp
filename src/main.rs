@@ -24,6 +24,7 @@ fn main() {
     if ! unit_dir.exists() {
         eprintln!("Unit directory doesn't exist, skipping check");
     } else {
+        // Not needed any more, can do in Nix
         check_unit_dir(unit_dir, &reference_index);
         eprintln!("Unit directory is valid");
     }
