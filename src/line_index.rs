@@ -1,7 +1,6 @@
-
 // A simple utility for calculating the line for a string offset
 pub struct LineIndex {
-    newlines: Vec<usize>
+    newlines: Vec<usize>,
 }
 
 impl LineIndex {

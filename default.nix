@@ -9,6 +9,7 @@ pkgs.rustPlatform.buildRustPackage {
   passthru.shell = pkgs.mkShell {
     packages = [
       pkgs.cargo
+      pkgs.rustfmt
       pkgs.rust-analyzer
       pkgs.rustc
       pkgs.niv

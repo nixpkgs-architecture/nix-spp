@@ -1,15 +1,13 @@
 use crate::line_index::LineIndex;
+use ignore::{DirEntry, Walk};
+use rnix::{Root, SyntaxKind::NODE_PATH};
 use rowan::ast::AstNode;
-use rnix::{
-    Root,
-    SyntaxKind::NODE_PATH
-};
-use std::fs::read_to_string;
-use std::ffi::OsStr;
-use std::path::Component;
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fs::read_to_string;
+use std::path::Component;
+use std::path::Path;
 use std::path::PathBuf;
-use ignore::Walk;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Reference {
@@ -50,41 +48,66 @@ pub struct GlobalIndex {
     pub path_indices: HashMap<PathBuf, PathIndex>,
 }
 
+enum Tree {
+    Dir(HashMap<String, Tree>),
+    File(Vec<Reference>),
+}
+//////
+
+enum Edge {
+    Reference,
+    DirEntry(String),
+}
+
+
+// Arena
+// https://crates.io/crates/atree
+// pkgs/development/libraries/readline/update-patch-set.sh -> pkgs/shells/bash/update-packag-set.sh
+
+
+
+// Nodes: Paths
+// Edges: Contains (directory listing)
+//        References
+
+// Move all files from one directory to another
 
 impl GlobalIndex {
-    pub fn new(path: &PathBuf) -> GlobalIndex {
-        let mut path_indices = HashMap::new();
-
+    pub fn new(path: impl AsRef<Path>) -> GlobalIndex {
         std::env::set_current_dir(path).unwrap();
-        for result in Walk::new(".") {
-            let subpath = result.unwrap().into_path();
-            path_indices.insert(subpath, PathIndex::new());
-        }
+        let subpaths: Vec<_> = Walk::new(".")
+            .filter_map(Result::ok)
+            .map(DirEntry::into_path)
+            .collect();
 
-        for subpath in path_indices.to_owned().into_keys() {
-            if subpath.is_dir() {
-                continue
-            }
+        let mut path_indices = subpaths
+            .iter()
+            .map(|p| (p.clone(), PathIndex::new()))
+            .collect();
 
-            if subpath.extension() != Some(OsStr::new("nix")) {
-                continue
-            }
+        subpaths
+            .iter()
+            .filter(|p| !p.is_dir() && p.extension() == Some(OsStr::new("nix")))
+            .for_each(|subpath| {
 
             let contents = read_to_string(&subpath).unwrap();
-            
+
             let root = match Root::parse(&contents).ok() {
                 Ok(root) => root,
                 Err(err) => {
-                    eprintln!("Warning: Couldn't parse file {:?}, ignoring it: {}", subpath, err);
-                    continue
-                },
+                    eprintln!(
+                        "Warning: Couldn't parse file {:?}, ignoring it: {}",
+                        subpath, err
+                    );
+                    return;
+                }
             };
 
             let line_index = LineIndex::new(&contents);
 
             'nodes: for node in root.syntax().descendants() {
                 if node.kind() != NODE_PATH {
-                    continue 'nodes
+                    continue 'nodes;
                 }
                 let text = node.text().to_string();
                 let line = line_index.line(node.text_range().start().into());
@@ -92,20 +115,21 @@ impl GlobalIndex {
                 // Filters out ./foo/${bar}/baz
                 if node.children().count() != 0 {
                     eprintln!("Note: File {:?} on line {:?} contains a path with a subexpressions, ignoring it: {}", subpath, line, text);
-                    continue 'nodes
+                    continue 'nodes;
                 }
                 // Filters out search paths like <nixpkgs>
                 if str::starts_with(&text, "<") {
                     eprintln!("Warning: File {:?} on line {:?} refers to Nix search path, ignoring it: {:?}", subpath, line, text);
-                    continue 'nodes
+                    continue 'nodes;
                 }
 
-                let (rel_to_source, movable_ancestor, rel_to_root) =
-                    if let Some(resolved) = resolve_reference(&subpath, line, &PathBuf::from(&text), &path_indices) {
-                        resolved
-                    } else {
-                        continue 'nodes
-                    };
+                let (rel_to_source, movable_ancestor, rel_to_root) = if let Some(resolved) =
+                    resolve_reference(&subpath, line, &PathBuf::from(&text), &path_indices)
+                {
+                    resolved
+                } else {
+                    continue 'nodes;
+                };
 
                 let reference = Reference {
                     line,
@@ -113,7 +137,7 @@ impl GlobalIndex {
                     rel_to_root,
                     text,
                 };
-                let path_index = path_indices.get_mut(&subpath).unwrap();
+                let path_index = path_indices.get_mut(&*subpath).unwrap();
                 let current_length = path_index.references.len();
                 let pointer = (subpath.clone(), current_length);
 
@@ -125,25 +149,35 @@ impl GlobalIndex {
 
                 let mut focused_dir = subpath.parent().unwrap().to_path_buf();
                 // The directory of the file is referenced by the file
-                path_indices.get_mut(&focused_dir).unwrap().referenced_by.push(pointer.clone());
+                path_indices
+                    .get_mut(&focused_dir)
+                    .unwrap()
+                    .referenced_by
+                    .push(pointer.clone());
                 for component in rel_to_source.components() {
                     match component {
                         Component::CurDir => {}
                         Component::ParentDir => {
-                            path_indices.get_mut(&focused_dir).unwrap().referenced_by.push(pointer.clone());
+                            path_indices
+                                .get_mut(&focused_dir)
+                                .unwrap()
+                                .referenced_by
+                                .push(pointer.clone());
                             focused_dir = focused_dir.parent().unwrap().to_path_buf();
                         }
                         Component::Normal(osstr) => {
-                            focused_dir = focused_dir.join(osstr).to_path_buf(); 
-                            path_indices.get_mut(&focused_dir).unwrap().referenced_by.push(pointer.clone());
+                            focused_dir = focused_dir.join(osstr).to_path_buf();
+                            path_indices
+                                .get_mut(&focused_dir)
+                                .unwrap()
+                                .referenced_by
+                                .push(pointer.clone());
                         }
                         _ => panic!("Should not occur!"),
                     }
                 }
-
             }
-
-        }
+        });
 
         GlobalIndex { path_indices }
     }
@@ -152,8 +186,12 @@ impl GlobalIndex {
 // Absolute project root path
 // Source path is where the reference is, relative to project root
 // reference is the reference string, any format
-pub fn resolve_reference(source: &PathBuf, line: usize, reference: &PathBuf, known_files: &HashMap<PathBuf, PathIndex>) -> Option<(PathBuf, PathBuf, PathBuf)> {
-
+pub fn resolve_reference(
+    source: &PathBuf,
+    line: usize,
+    reference: &PathBuf,
+    known_files: &HashMap<PathBuf, PathIndex>,
+) -> Option<(PathBuf, PathBuf, PathBuf)> {
     let mut rel_to_source = reference.clone();
     let mut movable_ancestor = source.parent().unwrap().to_path_buf();
     let mut rel_to_root = movable_ancestor.clone();
@@ -162,41 +200,43 @@ pub fn resolve_reference(source: &PathBuf, line: usize, reference: &PathBuf, kno
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                if ! ascending {
+                if !ascending {
                     eprintln!("Warning: File {:?} on line {:?} contains a path with an interleaved `..` segment, ignoring it: {:?}", source, line, reference);
-                    return None
+                    return None;
                 }
                 movable_ancestor = match movable_ancestor.parent() {
                     None => {
                         eprintln!("Parent doesn't exist");
-                        return None
-                    },
+                        return None;
+                    }
                     Some(parent) => {
-                        if ! parent.starts_with(".") {
+                        if !parent.starts_with(".") {
                             eprintln!("Warning: File {:?} on line {:?} refers to a path that escapes the project root, ignoring it: {:?}", source, line, reference);
-                            return None
+                            return None;
                         }
                         parent.to_path_buf()
-                    },
-
+                    }
                 };
                 rel_to_root = movable_ancestor.clone();
             }
             Component::Normal(segment) => {
                 ascending = false;
                 rel_to_root = rel_to_root.join(segment);
-                if ! known_files.contains_key(&rel_to_root) {
+                if !known_files.contains_key(&rel_to_root) {
                     if rel_to_root.exists() {
                         eprintln!("Warning: File {:?} on line {:?} refers to an ignored path, ignoring it: {:?}", source, line, reference);
                     } else {
                         eprintln!("Warning: File {:?} on line {:?} refers to non-existent path, ignoring it {:?}", source, line, reference);
                     }
-                    return None
+                    return None;
                 }
             }
             Component::RootDir | Component::Prefix(_) => {
-                eprintln!("Warning: File {:?} on line {:?} refers to absolute path, ignoring it: {:?}", source, line, reference);
-                return None
+                eprintln!(
+                    "Warning: File {:?} on line {:?} refers to absolute path, ignoring it: {:?}",
+                    source, line, reference
+                );
+                return None;
             }
         }
     }
@@ -208,9 +248,3 @@ pub fn resolve_reference(source: &PathBuf, line: usize, reference: &PathBuf, kno
     }
     Some((rel_to_source, movable_ancestor, rel_to_root))
 }
-
-
-
-
-
-

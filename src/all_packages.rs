@@ -1,21 +1,21 @@
-use std::io::Write;
-use std::fs::File;
-use rowan::GreenToken;
-use rnix::SyntaxKind;
+use crate::index::{resolve_reference, GlobalIndex};
+use crate::line_index::LineIndex;
+use rnix::ast::AstToken;
+use rnix::ast::{Attr, AttrSet, Expr, HasEntry, InterpolPart};
+use rnix::NixLanguage;
 use rnix::NodeOrToken::Token;
-use std::cmp::Reverse;
+use rnix::Root;
+use rnix::SyntaxKind;
 use rnix::SyntaxNode;
 use rowan::api::Language;
-use rnix::NixLanguage;
-use rnix::ast::AstToken;
 use rowan::ast::AstNode;
-use rnix::ast::{Attr, Expr, AttrSet, HasEntry, InterpolPart};
-use rnix::Root;
+use rowan::GreenToken;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fs::read_to_string;
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
-use crate::line_index::LineIndex;
-use crate::index::{GlobalIndex, resolve_reference};
 
 #[derive(Debug, Clone)]
 pub struct Entry {
@@ -43,9 +43,8 @@ impl AllPackages {
             Err(err) => {
                 eprintln!("Couldn't parse all-packages.nix file {:?}: {:?}", path, err);
                 std::process::exit(1);
-            },
+            }
         };
-
 
         let attribute_set = resulting_attrs(root.expr().unwrap()).unwrap();
 
@@ -83,12 +82,19 @@ impl AllPackages {
                         }
                         let x = match part {
                             InterpolPart::Literal(path) => path.syntax().text().to_string(),
-                            _ => continue
+                            _ => continue,
                         };
-                        if let Some((_rel_to_source, _movable_ancestor, rel_to_root)) = resolve_reference(&PathBuf::from("./pkgs/top-level/all-packages.nix"), line, &PathBuf::from(&x), &global_index.path_indices) {
+                        if let Some((_rel_to_source, _movable_ancestor, rel_to_root)) =
+                            resolve_reference(
+                                &PathBuf::from("./pkgs/top-level/all-packages.nix"),
+                                line,
+                                &PathBuf::from(&x),
+                                &global_index.path_indices,
+                            )
+                        {
                             rel_to_root
                         } else {
-                            continue
+                            continue;
                         }
                     };
 
@@ -97,10 +103,9 @@ impl AllPackages {
                     }
 
                     entries.insert(attribute, Entry { index, line, path })
-                },
+                }
                 _ => continue,
             };
-
         }
 
         AllPackages {
@@ -110,7 +115,6 @@ impl AllPackages {
             entries,
         }
     }
-
 
     pub fn remove(&mut self, attribute: &String) -> bool {
         if let Some(_) = self.entries.get(attribute) {
@@ -124,13 +128,12 @@ impl AllPackages {
 
     pub fn render(&self) {
         let mut green = self.syntax_node.green().into_owned();
-        let mut sorted_indices_to_remove : Vec<(usize, String)> = vec![];
+        let mut sorted_indices_to_remove: Vec<(usize, String)> = vec![];
         for attr in self.attributes_to_remove.iter() {
             sorted_indices_to_remove.push((self.entries.get(attr).unwrap().index, attr.to_owned()));
         }
         sorted_indices_to_remove.sort_by_key(|(index, _)| Reverse(*index));
         for (index, attr) in sorted_indices_to_remove.iter() {
-
             let mut potential_comment = false;
             // Go back until the previous node is found
             //
@@ -139,16 +142,16 @@ impl AllPackages {
                 match NixLanguage::kind_from_raw(previous.kind()) {
                     SyntaxKind::TOKEN_WHITESPACE => {
                         if previous.text().contains("\n") {
-                            break
+                            break;
                         } else {
                             previous_offset += 1;
                         }
-                    },
+                    }
                     SyntaxKind::TOKEN_COMMENT => {
                         potential_comment = true;
                         previous_offset += 1;
-                    },
-                    _ => break
+                    }
+                    _ => break,
                 }
             }
             let mut next_offset = 1;
@@ -156,28 +159,34 @@ impl AllPackages {
                 match NixLanguage::kind_from_raw(next.kind()) {
                     SyntaxKind::TOKEN_WHITESPACE => {
                         if next.text().contains("\n") {
-                            break
+                            break;
                         } else {
                             next_offset += 1;
                         }
-                    },
+                    }
                     SyntaxKind::TOKEN_COMMENT => {
                         potential_comment = true;
                         next_offset += 1;
-                    },
-                    _ => break
+                    }
+                    _ => break,
                 }
             }
 
             if potential_comment {
-                green = green.replace_child(*index, Token(GreenToken::new(NixLanguage::kind_to_raw(SyntaxKind::TOKEN_COMMENT), &format!("/* {} = <moved> */", attr))));
+                green = green.replace_child(
+                    *index,
+                    Token(GreenToken::new(
+                        NixLanguage::kind_to_raw(SyntaxKind::TOKEN_COMMENT),
+                        &format!("/* {} = <moved> */", attr),
+                    )),
+                );
                 continue;
             }
             if let Some(Token(previous)) = green.children().nth(index - previous_offset) {
                 if NixLanguage::kind_from_raw(previous.kind()) == SyntaxKind::TOKEN_WHITESPACE {
                     if let Some(Token(next)) = green.children().nth(index + next_offset) {
                         if NixLanguage::kind_from_raw(next.kind()) == SyntaxKind::TOKEN_WHITESPACE {
-                        // if Language::kind_from_raw(next.kind()) == SyntaxKind::TOKEN_WHITESPACE {
+                            // if Language::kind_from_raw(next.kind()) == SyntaxKind::TOKEN_WHITESPACE {
                             let mut prev_iter = previous.text().chars().rev().peekable();
                             let mut prev_count = 0;
                             // Remove leading spaces
@@ -200,26 +209,38 @@ impl AllPackages {
                                 next_count += 1;
                             }
 
-                            let mut new : String = prev_iter.rev().collect();
+                            let mut new: String = prev_iter.rev().collect();
                             new += &"\n".repeat(prev_count.max(next_count));
 
-                            let x : String = next_iter.collect();
+                            let x: String = next_iter.collect();
                             new += &x;
 
-                            green = green.splice_children(index - previous_offset ..= index + next_offset, [Token(GreenToken::new(previous.kind(), &new))]);
-                            continue
+                            green = green.splice_children(
+                                index - previous_offset..=index + next_offset,
+                                [Token(GreenToken::new(previous.kind(), &new))],
+                            );
+                            continue;
                         }
                     }
                 }
             }
-            eprintln!("Couldn't properly strip space around {:?}", green.children().nth(*index).unwrap().to_string());
+            eprintln!(
+                "Couldn't properly strip space around {:?}",
+                green.children().nth(*index).unwrap().to_string()
+            );
             green = green.remove_child(*index);
         }
         let mut file = File::create(&self.path).unwrap();
-        file.write(&self.syntax_node.replace_with(green).to_string().into_bytes()).unwrap();
+        file.write(
+            &self
+                .syntax_node
+                .replace_with(green)
+                .to_string()
+                .into_bytes(),
+        )
+        .unwrap();
         // println!("{:#?}", SyntaxNode::new_root(self.syntax_node.replace_with(green)));
     }
-
 }
 
 fn unwrap_apply_chain(expr: Expr) -> Vec<Expr> {
@@ -228,7 +249,7 @@ fn unwrap_apply_chain(expr: Expr) -> Vec<Expr> {
             let mut x = unwrap_apply_chain(it.lambda().unwrap());
             x.push(it.argument().unwrap());
             x
-        },
+        }
         other => vec![other],
     }
 }
@@ -238,6 +259,6 @@ fn resulting_attrs(expr: Expr) -> Option<AttrSet> {
         Expr::Lambda(it) => resulting_attrs(it.body()?),
         Expr::With(it) => resulting_attrs(it.body()?),
         Expr::AttrSet(it) => Some(it),
-        _ => None
+        _ => None,
     }
 }
