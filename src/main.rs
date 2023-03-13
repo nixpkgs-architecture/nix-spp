@@ -14,19 +14,14 @@ use unit::check_unit_dir;
 mod all_packages;
 mod line_index;
 
-fn main() {
+use anyhow::Result;
+
+fn main() -> Result<()> {
     let cli = Args::parse();
 
     let reference_index = GlobalIndex::new(&cli.path);
 
-    let unit_dir = cli.path.join("pkgs/unit");
-    if !unit_dir.exists() {
-        eprintln!("Unit directory doesn't exist, skipping check");
-    } else {
-        // Not needed any more, can do in Nix
-        check_unit_dir(unit_dir, &reference_index);
-        eprintln!("Unit directory is valid");
-    }
+    check_unit_dir(&cli.path, &reference_index)?;
 
     // println!("{:#?}", reference_index);
 
@@ -141,4 +136,6 @@ fn main() {
     }
 
     ap.render();
+
+    Ok(())
 }

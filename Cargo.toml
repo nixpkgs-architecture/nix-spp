@@ -10,3 +10,4 @@ rnix = "0.11.0"
 rowan = "0.15.0"
 clap = { version = "4.0.32", features = ["derive"] }
 ignore = "0.4.19"
+anyhow = "1.0.69"

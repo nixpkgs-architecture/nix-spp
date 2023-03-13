@@ -5,7 +5,7 @@
 - [ ] Check the validity of the `pkgs/unit` directory, https://github.com/nixpkgs-architecture/rfcs/blob/master/rfcs/0140-simple-package-paths.md#detailed-design
   - Structure: Check not needed, we can check that in Nix
   - [ ] Only derivations
-  - [ ] Stable boundary: Shouldn't reference files outside, neither be referenced from outside
+  - [x] Stable boundary: Shouldn't reference files outside, neither be referenced from outside
   - [ ] Custom arguments: `all-packages.nix` can reference unit directories in a limited way
 
 - [x] Loop through all definitions in all-packages.nix

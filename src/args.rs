@@ -18,6 +18,7 @@ pub struct Args {
 
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum Mode {
+    // Can be removed once the migration is done
     Migrate,
     Warn,
     Error,

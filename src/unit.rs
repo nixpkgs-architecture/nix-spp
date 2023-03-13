@@ -1,7 +1,11 @@
+use std::path::Path;
+use std::collections::HashMap;
 use crate::index::GlobalIndex;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
+
+use anyhow::{Result, Context};
 
 // - insert: Takes a path that should be moved into the unit directory,
 //   checks that the path doesn't contain any references to outside, and
@@ -9,60 +13,64 @@ use std::path::PathBuf;
 //   file, and optionally a Nix expression to use as the args.nix
 // - Provides an iterator over all the unit directories
 
-pub fn check_unit_dir(unit_dir: PathBuf, _global_index: &GlobalIndex) -> HashSet<String> {
-    let mut result = HashSet::new();
-    for unit_result in unit_dir.read_dir().unwrap() {
-        let shard_dir = unit_result.unwrap();
+pub fn check_unit_dir(nixpkgs_dir: impl AsRef<Path>, global_index: &GlobalIndex) -> Result<()> {
+    let unit_dir = nixpkgs_dir.as_ref().join("./pkgs/unit");
+    if !unit_dir.exists() {
+        eprintln!("Unit directory doesn't exist, skipping check");
+        return Ok(())
+    } 
+    eprintln!("Unit directory is valid");
+
+    let mut result = HashMap::new();
+    for unit_result in unit_dir.read_dir()? {
+        let shard_dir = unit_result?;
         // Every entry in the root must be a directory
-        if !shard_dir.file_type().unwrap().is_dir() {
-            eprintln!(
+        if !shard_dir.file_type()?.is_dir() {
+            anyhow::bail!(
                 "Unit directory entry {:?} is not a directory",
                 shard_dir.file_name()
             );
-            std::process::exit(1)
         }
 
-        let mut attributes = shard_dir.path().read_dir().unwrap().peekable();
+        let mut attributes = shard_dir.path().read_dir()?.peekable();
 
         // All shard directories must be non-empty
         if attributes.peek().is_none() {
-            eprintln!("Shard directory {:?} is empty", shard_dir.file_name());
-            std::process::exit(1)
+            anyhow::bail!("Shard directory {:?} is empty", shard_dir.file_name());
         }
 
         for attr_result in attributes {
-            let entry = attr_result.unwrap();
-            let attr = entry.file_name().into_string().unwrap();
-            result.insert(attr.clone());
+            let entry = attr_result?;
+            let attr = entry.file_name().into_string().map_err
+                (|o| anyhow::anyhow!("weird filename: {}", o.to_string_lossy()))?;
+            let relative_path = PathBuf::from(".").join(entry.path().strip_prefix(&nixpkgs_dir)?.to_owned());
+            result.insert(attr.clone(), relative_path);
 
             // All unit directories must be a directory
             if !entry.path().is_dir() {
-                eprintln!(
+                anyhow::bail!(
                     "Path {:?}/{:?} is not a directory",
                     shard_dir.file_name(),
                     entry.file_name()
                 );
-                std::process::exit(1)
             }
 
             // All unit directories must contain a pkg-fun.nix file
             if !entry.path().join("pkg-fun.nix").exists() {
-                eprintln!(
+                anyhow::bail!(
                     "Path {:?}/{:?} doesn't contain a pkg-fun.nix file",
                     shard_dir.file_name(),
                     entry.file_name()
                 );
-                std::process::exit(1)
             }
 
             // All unit directories must be in the correct shard directory
             if attr_shard_dir(&attr) != shard_dir.file_name() {
-                eprintln!(
+                anyhow::bail!(
                     "Shard directory {:?} doesn't match shard entry {:?}",
                     shard_dir.file_name(),
                     entry.file_name()
                 );
-                std::process::exit(1)
             }
 
             // Unit directories can only contain a limited set of characters
@@ -74,17 +82,45 @@ pub fn check_unit_dir(unit_dir: PathBuf, _global_index: &GlobalIndex) -> HashSet
                       || c == '-' || c == '_'
                     // - and _
                 ) {
-                    eprintln!(
+                    anyhow::bail!(
                         "Unit directory entry {:?} contains in invalid attribute character {:?}",
                         shard_dir.file_name(),
                         c
                     );
-                    std::process::exit(1)
                 }
             }
         }
     }
-    result
+
+    // global_index.path_indices
+    // path like pkgs/unit/he/hello
+    //
+    //
+    // A reference is not just a single reference, but also a reference to all the intermediate
+    // directories traversed to get to the final path
+    for (attr, unitDir) in result {
+        println!("{:?}", unitDir);
+        println!("{:?}", global_index.path_indices[&unitDir]);
+        for (referenced_by_file, index) in &global_index.path_indices[&unitDir].referenced_by {
+            let reference = dbg!(dbg!(&global_index.path_indices[dbg!(referenced_by_file)].references)[*index].clone());
+            // Example: Movable ancestor is ./pkgs, then ./pkgs/unit/he/hello
+            if ! reference.movable_ancestor.starts_with(&unitDir) {
+                anyhow::bail!(
+                    "File {:?} is being referenced by {:?}, which crosses the unit directory bound of {:?}",
+                    reference.rel_to_root,
+                    referenced_by_file,
+                    unitDir,
+                );
+            }
+        }
+
+        // 
+    }
+
+    std::process::exit(1);
+
+    Ok(())
+    // result
 }
 
 pub fn attr_shard_dir(attr: &String) -> OsString {
