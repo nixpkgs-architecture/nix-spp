@@ -1,27 +1,28 @@
+use std::ffi::OsString;
 use crate::all_packages::AllPackages;
-use crate::unit::attr_shard_dir;
 use ignore::Walk;
 use std::collections::HashSet;
 use std::path::PathBuf;
 mod args;
 mod index;
-mod unit;
 use args::Args;
 use clap::Parser;
 use index::GlobalIndex;
-use unit::check_unit_dir;
 
 mod all_packages;
 mod line_index;
 
 use anyhow::Result;
 
+pub fn attr_shard_dir(attr: &String) -> OsString {
+    let str: String = attr.to_lowercase().chars().take(2).collect();
+    str.into()
+}
+
 fn main() -> Result<()> {
     let cli = Args::parse();
 
     let reference_index = GlobalIndex::new(&cli.path);
-
-    check_unit_dir(&cli.path, &reference_index)?;
 
     // println!("{:#?}", reference_index);
 
